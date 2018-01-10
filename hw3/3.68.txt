@@ -1,0 +1,7 @@
+movslq 8(%rsi), %rax
+tells us that 4 < B <=8
+addq 32(%rsi), %rax
+tells us that 5 < A <= 10
+movq %rax, 184(%rdi)
+tells us that 44 < A*B <= 46
+so the only possible combination is A = 9 and B = 5

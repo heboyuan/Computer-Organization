@@ -1,0 +1,26 @@
+A.
+This will always true
+because x is an int and converted to float, dx also start as a int and convert to double, since there is no rounding or overflow from int to double, the exact value will be preserved and then convert to float will always have same effect as (float)x
+
+this doesn't require fwrapv because nothing overflow
+
+B.
+when x is INT_MIN and y is a positive number, x - y will overflow but dx - dy will not
+
+this requires frwapv because it have to allow the integer to overflow
+
+C.
+This will always true
+because all the int value can be preserved as double without rounding
+
+this doesn't require fwrapv because nothing overflow
+
+D.
+when x is 2^-31, y is 2^31 and z is 2^31, one will give NaN and another will give 2^31
+
+this doesn't require fwrapv because nothing overflow
+
+E.
+when x is 0 but z is not
+
+this doesn't require fwrapv because nothing overflow

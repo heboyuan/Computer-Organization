@@ -1,0 +1,46 @@
+1.
+the correct result is -2305843009802285360, and its 2's complement representation is dfffffffdceaced0 so I search for it in the trace and find it is stored in r12
+then it uses the line below to give the value to rax.
+lea 0x2(,%r12,4),%rax	rax=7fffffff73ab3b42
+dfffffffdceaced0 multipile by 4 is 37fffffff73ab3b40. Note here 3 will be discarded due to overflow. Then plus by 2 get 7fffffff73ab3b42.
+
+2.
+in the data.c
+most-negative-fixnum and find it get its value from MOST_NEGATIVE_FIXNUM
+
+in lisp.h
+MOST_NEGATIVE_FIXNUM is defined by -1 - MOST_POSITIVE_FIXNUM
+
+MOST_POSITIVE_FIXNUM is defined by EMACS_INT_MAX >> INTTYPEBITS
+EMACS_INT_MAX is LONG_MAX, which is 0x7fffffffffffffff
+INTTYPEBITS is 2
+so MOST_POSITIVE_FIXNUM is 0x1fffffffffffffff, which is 2305843009213693951
+
+MOST_NEGATIVE_FIXNUM is -1-2305843009213693951 equals -2305843009213693952
+
+3.
+I find that overflow in the data.c is handled by masking to INTMASK
+the INTMASK can be find in lisp.h which is defined as (EMACS_INT_MAX >> (INTTYPEBITS - 1))
+this shift 0x7fffffffffffffff to the right by 1 bit so the mask is 0x3fffffffffffffff
+moreover, from the previous question, we can see that the most-positive-fixnum is 2305843009213693951
+so most-positive-fixnum * most-positive-fixnum should be 5316911983139663487003542222693990401
+5316911983139663487003542222693990401 is 3FFFFFFFFFFFFFFC000000000000001 in hexdecimal
+maks this number with the INTMASK give the result of 0000000000000001
+multiple this, which is 1, with the most-positive-fixnum will get most-positive-fixnum
+then multiple most-positive-fixnum to most-positive-fixnum will result 0000000000000001 as discussed above.
+
+4.
+fwrapv will tell the compiler to discard the significant bit when there is a overflow, so there will not be any compile time error or run time error. This means that the user will not be able to tell whether there is an overflow or not.
+
+5.
+run the program with gdb (set disassemble-next-line on) I get
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00007ffff16be55b in __strcpy_sse2_unaligned () from /lib64/libc.so.6
+=> 0x00007ffff16be55b <__strcpy_sse2_unaligned+411>:    f3 0f 7f 7f f0  movdqu %xmm7,-0x10(%rdi)
+
+Segmentation fault means that the program is trying to access the memory that it is not suppose to
+the memory is indicated by -0x10(%rdi) so I use info to get value in rdi
+rdi            0x14a300a        21639178
+so the program is trying to access 0x14a3000 which is protected memory
+

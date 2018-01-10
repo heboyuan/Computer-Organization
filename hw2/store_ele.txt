@@ -1,0 +1,9 @@
+3.63
+
+A.
+Xa + 8(i*T*S + T*j + k)
+
+B.
+T is 13
+S is 5
+R is 7

@@ -1,0 +1,11 @@
+A.
+e1.p 0
+e1.y 8
+e2.x 0
+e2.next 8
+
+B.
+since long and pointer are all 8 bits, the struct requires 16 bits
+
+C.
+up->e2.x = *(up->e2.next->e1.p) - up->e2.next->e1.y

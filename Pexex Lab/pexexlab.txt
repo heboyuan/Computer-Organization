@@ -1,0 +1,30 @@
+1.
+use gdb on emacs 25.2
+gdb ~eggert/bin64/bin/emacs-25.2
+
+2.
+set break point at Ftimes function
+break Ftimes
+
+3.
+turn on the disassemble-next-line to make the gdb print out disassemble code
+set disassemble-next-line on
+
+4.
+run -Q -batch -eval '(print (* 1250284240 -1844255039))'
+
+5.
+use the commands below repeatedly
+si
+	execute one instruction
+info register $(RegisterName)
+	get the information about a register
+x/g (MemoryLocation)
+	get information about a memory location, /g ask gdb to print long information about the memory
+
+6.
+created a file name test.c and copy the funtion into it
+then I use commands below to compile it
+gcc -O2 -S testO2.s test.c
+gcc -O2 -fwrapv -S testfwrapv.s test.c
+gcc -O2 -fsanitize=undefined -S test.c

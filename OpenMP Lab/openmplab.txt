@@ -1,0 +1,122 @@
+1.
+I analyze the bottleneck
+
+make seq GPROF=1
+
+./seq
+FUNC TIME : 0.801850
+TOTAL TIME : 2.767525
+
+gprof seq
+Each sample counts as 0.01 seconds.
+  %   cumulative   self              self     total
+ time   seconds   seconds    calls  ms/call  ms/call  name
+ 76.42      0.58     0.58       15    38.72    39.48  func1
+  7.91      0.64     0.06  5177344     0.00     0.00  rand2
+  5.27      0.68     0.04        1    40.05    88.73  addSeed
+  3.95      0.71     0.03   491520     0.00     0.00  findIndexBin
+  2.64      0.73     0.02        2    10.01    10.01  init
+  1.32      0.74     0.01       15     0.67     2.67  func5
+  1.32      0.75     0.01        1    10.01    10.01  imdilateDisk
+  1.32      0.76     0.01                             sequence
+  0.00      0.76     0.00   983042     0.00     0.00  round
+  0.00      0.76     0.00       16     0.00     0.00  dilateMatrix
+  0.00      0.76     0.00       15     0.00     0.00  func2
+  0.00      0.76     0.00       15     0.00     0.00  func3
+  0.00      0.76     0.00       15     0.00     0.00  func4
+  0.00      0.76     0.00       15     0.00     0.00  rand1
+  0.00      0.76     0.00        2     0.00     0.00  get_time
+  0.00      0.76     0.00        1     0.00     0.00  elapsed_time
+  0.00      0.76     0.00        1     0.00     0.00  fillMatrix
+  0.00      0.76     0.00        1     0.00     0.00  func0
+  0.00      0.76     0.00        1     0.00     0.00  getNeighbors
+
+  obviously, should work on function 1 first and then function 5
+
+2.
+optimize func1 func5
+after optimize func1 and func5, I decided to optimize all the rest functions
+by optimize I mean use OpenMp to parallel the loops and reduce the memory references
+
+during optimization, I dicover that limit the thread to 30 will get the best result, the other 2 thread might be used for system and other user.
+
+3.
+find the original run time
+$ make clean
+$ make seq
+$ ./seq
+FUNC TIME : 0.794040
+TOTAL TIME : 2.618193
+
+
+4.
+find the optimized run time
+$ make clean
+$ make omp
+$ ./omp
+FUNC TIME : 0.037663
+TOTAL TIME : 2.108143
+
+so the speed up is
+Sp = T1/Tp
+S32 = T1/T32 = 0.794040/0.037663 = 21.0827
+so I get about 21 speed up
+(note: I ran the exactly same program when is near the deadline, and I get very little speed up because lots of people are using the server, this makes creating 30 thread inefficient)
+
+5.
+check correctness, and everything goes fine
+make check
+gcc -o omp  -O3 -fopenmp filter.c main.c func.c util.c -lm
+cp omp filter
+./filter
+FUNC TIME : 0.043253
+TOTAL TIME : 2.231798
+diff --brief correct.txt output.txt
+
+
+6.
+check memory leak
+make clean
+make omp MTRACE=1
+./omp
+make checkmem
+Memory not freed:
+-----------------
+           Address     Size     Caller
+addr2line: 'filter': No such file
+0x00000000006e9060   0x1e90  at
+0x00000000006eaf00     0xc0  at
+addr2line: 'filter': No such file
+0x00000000006eafd0     0xf8  at
+addr2line: 'filter': No such file
+0x00000000006eb0d0    0x240  at
+0x00000000006eb320    0x240  at
+0x00000000006eb570    0x240  at
+0x00000000006eb7c0    0x240  at
+0x00000000006eba10    0x240  at
+0x00000000006ebc60    0x240  at
+0x00000000006ebeb0    0x240  at
+0x00000000006ec100    0x240  at
+0x00000000006ec350    0x240  at
+0x00000000006ec5a0    0x240  at
+0x00000000006ec7f0    0x240  at
+0x00000000006eca40    0x240  at
+0x00000000006ecc90    0x240  at
+0x00000000006ecee0    0x240  at
+0x00000000006ed130    0x240  at
+0x00000000006ed380    0x240  at
+0x00000000006ed5d0    0x240  at
+0x00000000006ed820    0x240  at
+0x00000000006eda70    0x240  at
+0x00000000006edcc0    0x240  at
+0x00000000006edf10    0x240  at
+0x00000000006ee160    0x240  at
+0x00000000006ee3b0    0x240  at
+0x00000000006ee600    0x240  at
+0x00000000006ee850    0x240  at
+0x00000000006eeaa0    0x240  at
+0x00000000006eecf0    0x240  at
+0x00000000006eef40    0x240  at
+0x00000000006ef190    0x240  at
+
+according to TA on piazza, these message can be ignored since they are not caused by my action. Moreover, since I didn't allocate any resourse, this shouldn't be an issue.

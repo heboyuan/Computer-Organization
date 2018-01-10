@@ -1,0 +1,5 @@
+A.
+It doesn't work because the sizeof(val)returns unsigned value, thus the maxbytes will be automatically changed to unsigned, and the result will not be less than 0.
+
+B.
+I will change the conditional test to (signed)(maxbytes - sizeof(val)) >= 0
